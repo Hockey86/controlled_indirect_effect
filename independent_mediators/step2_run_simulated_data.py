@@ -21,9 +21,18 @@ if __name__=='__main__':
     M = res['M']
     sids = np.arange(len(A))
     Mnames = ['M%d'%(i+1,) for i in range(M.shape[1])]
-    coef_A_L = res['coef_A_L'].flatten()
-    coef_M_AL = res['coef_M_AL']
-    coef_Y_ALM = res['coef_Y_ALM'].flatten()
+    
+    print('CDE0_1', res['CDE0_1'][0,0])
+    print('CIE1_1', res['CIE1_1'][0,0])
+    print('CIE0_1', res['CIE0_1'][0,0])
+    print('sCIE1', res['sCIE1'][0,0])
+    print('TE1', res['TE1'][0,0])
+    print('CDE0_2', res['CDE0_2'][0,0])
+    print('CIE1_2', res['CIE1_2'][0,0])
+    print('CIE0_2', res['CIE0_2'][0,0])
+    print('sCIE2', res['sCIE2'][0,0])
+    print('TE2', res['TE2'][0,0])
+    print('TE', res['TE'][0,0])
     
     ## set up numbers
 
@@ -35,7 +44,7 @@ if __name__=='__main__':
     
     ## generate cv split
 
-    cv_path = 'patients_cv_split.pickle'
+    cv_path = 'patients_cv_split_simulated.pickle'
     if os.path.exists(cv_path):
         with open(cv_path, 'rb') as ff:
             tr_sids, te_sids = pickle.load(ff)
@@ -90,19 +99,19 @@ if __name__=='__main__':
             
             Lmean = Ltr.mean(axis=0)
             Lstd = Ltr.std(axis=0)
-            #Ltr = (Ltr-Lmean)/Lstd
-            #Lte = (Lte-Lmean)/Lstd
+            Ltr = (Ltr-Lmean)/Lstd
+            Lte = (Lte-Lmean)/Lstd
             
             #try:
             for pi, pm in enumerate(prediction_methods):          
                 # fit A|L
                 model_a_l, model_a_l_perf = fit_prediction_model(pm+':bclf', Ltr, Atr,
-                                        save_path='models/model_a_l_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
+                                        save_path='models_simulated_data/model_a_l_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
                                         random_state=random_state+pi+1000)
             
                 # fit Y|A,L,M
                 model_y_alm, model_y_alm_perf = fit_prediction_model(pm+':reg', np.c_[Atr, Ltr, Mtr], Ytr,
-                                    save_path='models/model_y_alm_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
+                                    save_path='models_simulated_data/model_y_alm_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
                                     random_state=random_state+pi*3000)
                                         
                 model_m_als = []
@@ -110,7 +119,7 @@ if __name__=='__main__':
                 for mi, mediator_name in enumerate(Mnames):
                     # fit Mi|A,L
                     model_m_al, model_m_al_perf = fit_prediction_model(pm+':bclf', np.c_[Atr, Ltr], Mtr[:, mi],
-                                        save_path='models/med_model_%s_cv%d_%s'%(mediator_name, cvi+1, pm) if bti==0 else None,
+                                        save_path='models_simulated_data/med_model_%s_cv%d_%s'%(mediator_name, cvi+1, pm) if bti==0 else None,
                                         random_state=random_state+pi*2000+mi)
                     model_m_als.append(model_m_al)
                     model_m_al_perfs.append(model_m_al_perf)
@@ -129,7 +138,7 @@ if __name__=='__main__':
                     res.append([bti, cvi, pm, cim, model_a_l_perf, model_y_alm_perf] + model_m_al_perfs + cdes + scies + cies0 + cies1)
                     #print(res[-1])
             
-            with open('results.pickle', 'wb') as ff:
+            with open('results_simulated_data.pickle', 'wb') as ff:
                 pickle.dump(res, ff, protocol=2)
             
             #except Exception as ee:
@@ -226,7 +235,7 @@ if __name__=='__main__':
         dfs.append(df)
             
     # save
-    with pd.ExcelWriter('results.xlsx') as writer:
+    with pd.ExcelWriter('results_simulated_data.xlsx') as writer:
         for df in dfs:
             df.to_excel(writer, sheet_name='%s+%s'%(pm, cim), index=False)
     

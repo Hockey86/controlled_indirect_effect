@@ -8,9 +8,36 @@ def infer_mediation(model_type, model_a_l, model_m_als, model_y_alm, Y, M, A, L,
                          L-^--^--^
     """
     N = len(Y)
-
     if model_type=='or':
-        raise NotImplemented(model_type)
+        
+        CDEs = []
+        sCIEs = []
+        CIE0s = []
+        CIE1s = []
+        for mi in range(len(model_m_als)):
+            Mas = []
+            Yams = []
+            for a in [0,1]:
+                # compute M(a) for each mediator
+                Ma = model_m_als[mi].predict_proba(np.c_[np.zeros((N,1))+a, L])[:,1]
+                Mas.append(Ma.mean())
+                
+                Yams.append([])
+                for m in [0,1]:
+                    # compute Y(a,m) for each mediator
+                    M2 = np.array(M)
+                    M2[:,mi] = m
+                    Y_aLm = model_y_alm.predict(np.c_[np.zeros((N,1))+a, L, M2])
+                    Yams[-1].append(Y_aLm.mean())
+            
+            CIE0 = Yams[0][1] - Yams[0][0]
+            CIE1 = Yams[1][1] - Yams[1][0]
+            
+            CDEs.append( (Yams[1][0]-Yams[0][0]) )
+            sCIEs.append( Mas[1]*CIE1-Mas[0]*CIE0 )
+            CIE0s.append( CIE0 )
+            CIE1s.append( CIE1 )
+            
     elif model_type=='ipw':
         raise NotImplemented(model_type)
     elif model_type=='msm':
