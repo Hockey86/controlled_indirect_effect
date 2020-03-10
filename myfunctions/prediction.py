@@ -4,7 +4,7 @@ from scipy.special import expit as sigmoid
 from joblib import dump, load
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression, BayesianRidge
-from skbayes.linear_models import EBLogisticRegression,VBLogisticRegression
+#from skbayes.linear_models import EBLogisticRegression,VBLogisticRegression
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import GridSearchCV

@@ -14,7 +14,7 @@ from causal_inference import infer_mediation
 if __name__=='__main__':
     ## load data
 
-    res = pd.read_excel('../../data/framing.xlsx')
+    res = pd.read_excel('../data/framing.xlsx')
     A = res['treat'].values
     
     res.loc[res.educ=='less than high school', 'educ'] = 0
@@ -103,8 +103,8 @@ if __name__=='__main__':
             Lte = Lbt[teid]
             Mte = Mbt[teid] 
             
-            Lmean = Ltr.mean(axis=0)
-            Lstd = Ltr.std(axis=0)
+            Lmean = np.mean(Ltr, axis=0)
+            Lstd = np.mean(Ltr, axis=0)
             Ltr = (Ltr-Lmean)/Lstd
             Lte = (Lte-Lmean)/Lstd
             
