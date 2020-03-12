@@ -42,7 +42,7 @@ def get_model(model_name, model_type, cv=5, random_state=None):
             #Pipeline((
             #    ('standardization', StandardScaler()),
             model = LogisticRegression(penalty='l2', random_state=random_state, solver='lbfgs', max_iter=1000, class_weight='balanced')
-            model = GridSearchCV(model, {'C':[0.01,0.1,1,10,100]}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+            model = GridSearchCV(model, {'C':[0.001,0.01,0.1,1,10]}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
             #model = VBLogisticRegression(n_iter=100)
             #model = GridSearchCV(model, {'a':[1e-6]}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
             

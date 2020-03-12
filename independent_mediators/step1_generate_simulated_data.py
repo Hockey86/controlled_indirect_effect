@@ -7,9 +7,10 @@ from scipy.special import expit as sigmoid
 if __name__=='__main__':
     ## general setup
 
-    Nsample = 1000
+    N = 1000
     D_L = 2
     D_M = 2
+    b = np.ones(N)
 
     random_state = 2020
     np.random.seed(random_state)
@@ -17,18 +18,19 @@ if __name__=='__main__':
     ## generate L
 
     # L contains both binary, categorical, and continuous
-    L = np.random.randn(Nsample, D_L)
-    L[:,0] = np.random.randint(0, 2, size=Nsample) # binary
-    L[:,1] = np.random.randint(0, 10, size=Nsample) # categorical
+    L = np.random.randn(N, D_L)
+    L[:,0] = np.random.randint(0, 2, size=N) # binary
+    L[:,1] = np.random.randint(0, 10, size=N) # categorical
 
     ## generate A from L
 
     coef_A_L = np.array([1,2,-9])
-    noise_A_L = np.random.randn(Nsample)*0.1
-    A = np.dot(np.c_[L,np.ones(len(L))], coef_A_L) + noise_A_L
+    noise_A_L = np.random.randn(N)*0.1
+    A = np.dot(np.c_[L,b], coef_A_L) + noise_A_L
     A = sigmoid(A)
     # A is binary
     A = (np.random.rand(*A.shape)<A).astype(int)
+    #TODO                                             A = (A>0.5).astype(int)
     print('A', Counter(A))
 
     ## generate M from A and L
@@ -37,8 +39,8 @@ if __name__=='__main__':
                           [3,4],
                           [5,6],
                           [-25,-25],])
-    noise_M_AL = np.random.randn(Nsample, D_M)*1
-    M = np.dot(np.c_[A,L,np.ones(len(A))], coef_M_AL) + noise_M_AL
+    noise_M_AL = np.random.randn(N, D_M)*1
+    M = np.dot(np.c_[A,L,b], coef_M_AL) + noise_M_AL
     M = sigmoid(M)
     # M is binary
     M = (M>0.5).astype(int)
@@ -47,24 +49,24 @@ if __name__=='__main__':
     ## generate Y from A, L, and M
 
     coef_Y_ALM = np.array([1,2,3,4,5])
-    noise_Y_ALM = np.random.randn(Nsample)*0.1
+    noise_Y_ALM = np.random.randn(N)*0.1
     Y = np.dot(np.c_[A,L,M], coef_Y_ALM) + noise_Y_ALM
     
     ## get ground truth
     
-    aa=1;mm=1;Y11_1=np.dot(np.c_[np.zeros(len(A))+aa, L, np.zeros(len(A))+mm, sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,1])],coef_Y_ALM).mean()
-    aa=1;mm=0;Y10_1=np.dot(np.c_[np.zeros(len(A))+aa, L, np.zeros(len(A))+mm, sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,1])],coef_Y_ALM).mean()
-    aa=0;mm=1;Y01_1=np.dot(np.c_[np.zeros(len(A))+aa, L, np.zeros(len(A))+mm, sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,1])],coef_Y_ALM).mean()
-    aa=0;mm=0;Y00_1=np.dot(np.c_[np.zeros(len(A))+aa, L, np.zeros(len(A))+mm, sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,1])],coef_Y_ALM).mean()
-    aa=1;M1_1=sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,0]).mean()
-    aa=0;M0_1=sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,0]).mean()
+    aa=1;M1_1=sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,0]).mean()
+    aa=0;M0_1=sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,0]).mean()
+    aa=1;mm=1;Y11_1=np.dot(np.c_[np.zeros(N)+aa, L, np.zeros(N)+mm, sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,1])],coef_Y_ALM).mean()
+    aa=1;mm=0;Y10_1=np.dot(np.c_[np.zeros(N)+aa, L, np.zeros(N)+mm, sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,1])],coef_Y_ALM).mean()
+    aa=0;mm=1;Y01_1=np.dot(np.c_[np.zeros(N)+aa, L, np.zeros(N)+mm, sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,1])],coef_Y_ALM).mean()
+    aa=0;mm=0;Y00_1=np.dot(np.c_[np.zeros(N)+aa, L, np.zeros(N)+mm, sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,1])],coef_Y_ALM).mean()
     
-    aa=1;mm=1;Y11_2=np.dot(np.c_[np.zeros(len(A))+aa, L, sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,0]), np.zeros(len(A))+mm],coef_Y_ALM).mean()
-    aa=1;mm=0;Y10_2=np.dot(np.c_[np.zeros(len(A))+aa, L, sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,0]), np.zeros(len(A))+mm],coef_Y_ALM).mean()
-    aa=0;mm=1;Y01_2=np.dot(np.c_[np.zeros(len(A))+aa, L, sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,0]), np.zeros(len(A))+mm],coef_Y_ALM).mean()
-    aa=0;mm=0;Y00_2=np.dot(np.c_[np.zeros(len(A))+aa, L, sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,0]), np.zeros(len(A))+mm],coef_Y_ALM).mean()
-    aa=1;M1_2=sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,1]).mean()
-    aa=0;M0_2=sigmoid(np.dot(np.c_[np.zeros(len(A))+aa,L,np.ones(len(A))], coef_M_AL)[:,1]).mean()
+    aa=1;M1_2=sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,1]).mean()
+    aa=0;M0_2=sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,1]).mean()
+    aa=1;mm=1;Y11_2=np.dot(np.c_[np.zeros(N)+aa, L, sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,0]), np.zeros(N)+mm],coef_Y_ALM).mean()
+    aa=1;mm=0;Y10_2=np.dot(np.c_[np.zeros(N)+aa, L, sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,0]), np.zeros(N)+mm],coef_Y_ALM).mean()
+    aa=0;mm=1;Y01_2=np.dot(np.c_[np.zeros(N)+aa, L, sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,0]), np.zeros(N)+mm],coef_Y_ALM).mean()
+    aa=0;mm=0;Y00_2=np.dot(np.c_[np.zeros(N)+aa, L, sigmoid(np.dot(np.c_[np.zeros(N)+aa,L,b], coef_M_AL)[:,0]), np.zeros(N)+mm],coef_Y_ALM).mean()
     
     CDE0_1 = Y10_1-Y00_1
     CIE1_1 = Y11_1-Y10_1
@@ -79,7 +81,14 @@ if __name__=='__main__':
     TE2 = CDE0_2+sCIE2
     
     TE = (TE1+TE2)/2
-
+    
+    m0=sigmoid(np.dot(np.c_[np.zeros(N),L,b],coef_M_AL))
+    m1=sigmoid(np.dot(np.c_[np.zeros(N)+1,L,b],coef_M_AL))
+    Y0=np.dot(np.c_[np.zeros(N),L,m0],coef_Y_ALM).mean()
+    Y1=np.dot(np.c_[np.zeros(N)+1,L,m1],coef_Y_ALM).mean()
+    assert np.abs(Y1-Y0-TE)<1e-4
+    import pdb;pdb.set_trace()
+    
     sio.savemat('simulated_data.mat',
                 {'A':A, 'L':L, 'Y':Y, 'M':M,
                 
