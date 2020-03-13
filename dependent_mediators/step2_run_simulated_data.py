@@ -8,102 +8,7 @@ from tqdm import tqdm
 import sys
 sys.path.insert(0, '../myfunctions')
 from prediction import fit_prediction_model
-#from causal_inference import infer_mediation
-
-def infer_mediation(model_type, model_a_l, model_m_als, model_y_alm, Y, M, A, L, random_state=None):
-    """
-    """
-    N = len(Y)
-    zeros = np.zeros(N)
-    assert model_type=='or', 'model_type %s'%model_type
-    
-    p_A_L = model_a_l.predict_proba(L)
-    p_A_L = p_A_L[range(N), A.astype(int)]
-    
-    CDEs = []
-    sCIEs = []
-    CIE0s = []
-    CIE1s = []
-    
-    M1s = []
-    M2s = []
-    M3s = []
-    for a in [0,1]:
-        # M1(a)
-        M1 = model_m_als[0].predict_proba(np.c_[zeros+a, L])[:,1].mean()
-        # M2(a) = M2(a,M1(a))
-        M2 = model_m_als[1].predict_proba(np.c_[zeros+a, L, zeros+1])[:,1].mean()*M1 +\
-             model_m_als[1].predict_proba(np.c_[zeros+a, L, zeros+0])[:,1].mean()*(1-M1)
-        # M3(a) = M3(a,M1(a),M2(a,M1(a)))
-        M3 = model_m_als[2].predict_proba(np.c_[zeros+a, L, zeros+1, zeros+1])[:,1].mean()*M1*M2 +\
-             model_m_als[2].predict_proba(np.c_[zeros+a, L, zeros+1, zeros+0])[:,1].mean()*M1*(1-M2) +\
-             model_m_als[2].predict_proba(np.c_[zeros+a, L, zeros+0, zeros+1])[:,1].mean()*(1-M1)*M2 +\
-             model_m_als[2].predict_proba(np.c_[zeros+a, L, zeros+0, zeros+0])[:,1].mean()*(1-M1)*(1-M2)
-        M1s.append(M1)
-        M2s.append(M2)
-        M3s.append(M3)
-        
-    for mi in range(len(model_m_als)):
-        Yams = []
-        if mi==0:
-            Mas = M1s
-            # compute M(a) for each mediator
-            for a in [0,1]:
-                # compute Y(a,m) for each mediator
-                Yams.append([])
-                for m in [0,1]:
-                    # compute Y(a,m) for each mediator
-                    # Y(a,m) = Y(a, m, M2(a,m), M3(a,m,M2(a,m)))
-                    M2_am = model_m_als[1].predict_proba(np.c_[zeros+a,L,zeros+m])[:,1].mean()
-                    M3_am_m2 = model_m_als[2].predict_proba(np.c_[zeros+a,L,zeros+m,zeros+1])[:,1].mean()*M2_am +\
-                               model_m_als[2].predict_proba(np.c_[zeros+a,L,zeros+m,zeros+0])[:,1].mean()*(1-M2_am)
-                    Yam = model_y_alm.predict(np.c_[zeros+a, L, zeros+m, zeros+1, zeros+1]).mean()*M2_am*M3_am_m2 +\
-                            model_y_alm.predict(np.c_[zeros+a, L, zeros+m, zeros+1, zeros+0]).mean()*M2_am*(1-M3_am_m2) +\
-                            model_y_alm.predict(np.c_[zeros+a, L, zeros+m, zeros+0, zeros+1]).mean()*(1-M2_am)*M3_am_m2 +\
-                            model_y_alm.predict(np.c_[zeros+a, L, zeros+m, zeros+0, zeros+0]).mean()*(1-M2_am)*(1-M3_am_m2)
-                    Yams[-1].append(Yam)
-                    
-        elif mi==1:
-            Mas = M2s
-            # compute M(a) for each mediator
-            for a in [0,1]:
-                # compute Y(a,m) for each mediator
-                Yams.append([])
-                for m in [0,1]:
-                    # compute Y(a,m) for each mediator
-                    # Y(a,m) = Y(a, M1(a), m, M3(a,M1(a),m))
-                    M3_am_m1 = model_m_als[2].predict_proba(np.c_[zeros+a,L,zeros+1,zeros+m])[:,1].mean()*M1s[a] +\
-                               model_m_als[2].predict_proba(np.c_[zeros+a,L,zeros+0,zeros+m])[:,1].mean()*(1-M1s[a])
-                    Yam = model_y_alm.predict(np.c_[zeros+a, L, zeros+1, zeros+m, zeros+1]).mean()*M1s[a]*M3_am_m1 +\
-                          model_y_alm.predict(np.c_[zeros+a, L, zeros+1, zeros+m, zeros+0]).mean()*M1s[a]*(1-M3_am_m1) +\
-                          model_y_alm.predict(np.c_[zeros+a, L, zeros+0, zeros+m, zeros+1]).mean()*(1-M1s[a])*M3_am_m1 +\
-                          model_y_alm.predict(np.c_[zeros+a, L, zeros+0, zeros+m, zeros+0]).mean()*(1-M1s[a])*(1-M3_am_m1)
-                    Yams[-1].append(Yam)
-                    
-        elif mi==2:
-            Mas = M3s
-            # compute M(a) for each mediator
-            for a in [0,1]:
-                # compute Y(a,m) for each mediator
-                Yams.append([])
-                for m in [0,1]:
-                    # compute Y(a,m) for each mediator
-                    # Y(a,m) = Y(a, M1(a), M2(a,M1(a)), m)
-                    Yam = model_y_alm.predict(np.c_[zeros+a, L, zeros+1, zeros+1, zeros+m]).mean()*M1s[a]*M2s[a] +\
-                          model_y_alm.predict(np.c_[zeros+a, L, zeros+1, zeros+0, zeros+m]).mean()*M1s[a]*(1-M2s[a]) +\
-                          model_y_alm.predict(np.c_[zeros+a, L, zeros+0, zeros+1, zeros+m]).mean()*(1-M1s[a])*M2s[a] +\
-                          model_y_alm.predict(np.c_[zeros+a, L, zeros+0, zeros+0, zeros+m]).mean()*(1-M1s[a])*(1-M2s[a])
-                    Yams[-1].append(Yam)
-            
-        CIE0 = Yams[0][1] - Yams[0][0]
-        CIE1 = Yams[1][1] - Yams[1][0]
-        
-        CDEs.append( (Yams[1][0]-Yams[0][0]) )
-        sCIEs.append( Mas[1]*CIE1-Mas[0]*CIE0 )
-        CIE0s.append( CIE0 )
-        CIE1s.append( CIE1 )
-
-    return CDEs, sCIEs, CIE0s, CIE1s
+from causal_inference import infer_mediation_3mediator
 
 
 if __name__=='__main__':
@@ -129,7 +34,7 @@ if __name__=='__main__':
     random_state = 2020
     prediction_methods = ['linear']
     causal_inference_methods = ['or']
-    Nbt = 10#00
+    Nbt = 1000
     np.random.seed(random_state)
     
     ## generate cv split
@@ -227,7 +132,7 @@ if __name__=='__main__':
                     
                 # do causal inference
                 for ci, cim in enumerate(causal_inference_methods):
-                    cdes, scies, cies0, cies1 = infer_mediation(cim, model_a_l, model_m_als, model_y_alm, Yte, Mte, Ate, Lte, random_state=random_state+pi*4000+ci)
+                    cdes, scies, cies0, cies1 = infer_mediation_3mediator(cim, model_a_l, model_m_als, model_y_alm, Yte, Mte, Ate, Lte, random_state=random_state+pi*4000+ci)
                     
                     # add average performance
                     cdes.append(np.mean(cdes))
