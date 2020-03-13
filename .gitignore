@@ -122,3 +122,4 @@ tags
 annoy_index_file
 *\.h5
 old
+*donotupload*
