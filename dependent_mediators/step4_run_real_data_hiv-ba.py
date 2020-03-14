@@ -21,33 +21,33 @@ if __name__=='__main__':
     res.loc[res.Sex=='M', 'Sex'] = 1
     res.loc[res.Sex=='F', 'Sex'] = 0
     race = OneHotEncoder(sparse=False).fit_transform(res.Race.values.astype(str).reshape(-1,1))
-    L = np.c_[res[['Age', 'Sex']].values.astype(float), race]
+    L = np.c_[res[['Age', 'Sex', 'Tobacco use disorder', 'Alcoholism']].values.astype(float), race]
     
     Y = res['BAI'].values.astype(float)
     
-    Mnames = ['abuse', 'heart disorder', 'sleep disorder']
+    Mnames = ['obesity', 'heart disorder', 'sleep disorder']
     M = res[Mnames].values.astype(float)
     for mm in Mnames:
         print(mm, Counter(res[mm]))
-    
     sids = np.arange(len(A))
     
     ## set up numbers
 
     random_state = 2020
     prediction_methods = ['linear']
-    causal_inference_methods = ['or']
+    causal_inference_methods = ['dr']
     Nbt = 1000
     np.random.seed(random_state)
     
     ## generate cv split
 
+    """
     cv_path = 'patients_cv_split_real_data2.pickle'
     if os.path.exists(cv_path):
         with open(cv_path, 'rb') as ff:
             tr_sids, te_sids = pickle.load(ff)
     else:
-        cvf = 3
+        cvf = 5
         sids2 = np.array(sids)
         np.random.shuffle(sids2)
         tr_sids = []
@@ -58,6 +58,9 @@ if __name__=='__main__':
             tr_sids.append(np.sort(np.setdiff1d(sids2, cvi)))
         with open(cv_path, 'wb') as ff:
             pickle.dump([tr_sids, te_sids], ff)
+    """
+    tr_sids = [sids]
+    te_sids = [sids]
 
     ## bootstrapping
 
@@ -106,15 +109,20 @@ if __name__=='__main__':
                 model_a_l, model_a_l_perf = fit_prediction_model(pm+':bclf', Ltr, Atr,
                                         save_path='models_real_data2/model_a_l_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
                                         random_state=random_state+pi+1000)
-            
-                # fit Y|A,L,M
-                model_y_alm, model_y_alm_perf = fit_prediction_model(pm+':reg', np.c_[Atr, Ltr, Mtr], Ytr,
-                                    save_path='models_real_data2/model_y_alm_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
-                                    random_state=random_state+pi*3000)
-                                        
                 model_m_als = []
                 model_m_al_perfs = []
+                model_y_alms = []
+                model_y_alm_perfs = []
                 for mi, mediator_name in enumerate(Mnames):
+            
+                    # fit Y|A,L,Mi
+                    model_y_alm, model_y_alm_perf = fit_prediction_model(pm+':reg', np.c_[Atr, Ltr, Mtr[:,mi]], Ytr,
+                                        save_path='models_real_data2/model_y_alm_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
+                                        random_state=random_state+pi*3000)
+                    model_y_alms.append(model_y_alm)
+                    model_y_alm_perfs.append(model_y_alm_perf)
+                                    
+                    """
                     if mi==0:
                         # fit M1|A,L
                         model_m_al, model_m_al_perf = fit_prediction_model(pm+':bclf', np.c_[Atr, Ltr], Mtr[:, mi],
@@ -130,12 +138,16 @@ if __name__=='__main__':
                         model_m_al, model_m_al_perf = fit_prediction_model(pm+':bclf', np.c_[Atr, Ltr, Mtr[:,[0,1]]], Mtr[:, mi],
                                     save_path='models_real_data2/med_model_%s_cv%d_%s'%(mediator_name, cvi+1, pm) if bti==0 else None,
                                     random_state=random_state+pi*2000+mi)
+                    """
+                    model_m_al, model_m_al_perf = fit_prediction_model(pm+':bclf', np.c_[Atr, Ltr], Mtr[:, mi],
+                                save_path='models_real_data2/med_model_%s_cv%d_%s'%(mediator_name, cvi+1, pm) if bti==0 else None,
+                                random_state=random_state+pi*2000+mi)
                     model_m_als.append(model_m_al)
                     model_m_al_perfs.append(model_m_al_perf)
 
                 # do causal inference
                 for ci, cim in enumerate(causal_inference_methods):
-                    cdes, scies, cies0, cies1 = infer_mediation_3mediator(cim, model_a_l, model_m_als, model_y_alm, Yte, Mte, Ate, Lte, random_state=random_state+pi*4000+ci)
+                    cdes, scies, cies0, cies1 = infer_mediation_3mediator(cim, model_a_l, model_m_als, model_y_alms, Yte, Mte, Ate, Lte, random_state=random_state+pi*4000+ci)
                     
                     # add average performance
                     cdes.append(np.mean(cdes))
