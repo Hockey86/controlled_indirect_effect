@@ -8,7 +8,7 @@ if __name__=='__main__':
     ## general setup
 
     N = 1000
-    D_L = 2
+    D_L = 10
     D_M = 2
     b = np.ones(N)
 
@@ -24,13 +24,12 @@ if __name__=='__main__':
 
     ## generate A from L
 
-    coef_A_L = np.array([1,2,-9])
-    noise_A_L = np.random.randn(N)*0.1
+    coef_A_L = np.array([1,2,1,2,3,2,1,4,2,3,-9]).astype(float)
+    noise_A_L = np.random.randn(N)*1
     A = np.dot(np.c_[L,b], coef_A_L) + noise_A_L
     A = sigmoid(A)
     # A is binary
-    A = (np.random.rand(*A.shape)<A).astype(int)
-    #TODO                                             A = (A>0.5).astype(int)
+    A = (A>0.5).astype(float)
     print('A', Counter(A))
 
     ## generate M from A and L
@@ -38,18 +37,26 @@ if __name__=='__main__':
     coef_M_AL = np.array([[1,2],
                           [3,4],
                           [5,6],
-                          [-25,-25],])
+                          [4,3],
+                          [2,1],
+                          [3,4],
+                          [2,5],
+                          [1,3],
+                          [2,2],
+                          [3,1],
+                          [2,3],
+                          [-25,-25],]).astype(float)
     noise_M_AL = np.random.randn(N, D_M)*1
     M = np.dot(np.c_[A,L,b], coef_M_AL) + noise_M_AL
     M = sigmoid(M)
     # M is binary
-    M = (M>0.5).astype(int)
+    M = (M>0.5).astype(float)
     print('M', Counter(M.flatten()))
     
     ## generate Y from A, L, and M
 
-    coef_Y_ALM = np.array([1,2,3,4,5])
-    noise_Y_ALM = np.random.randn(N)*0.1
+    coef_Y_ALM = np.array([1,3,1,2,1,2,3,2,3,2,3,4,5]).astype(float)
+    noise_Y_ALM = np.random.randn(N)*1
     Y = np.dot(np.c_[A,L,M], coef_Y_ALM) + noise_Y_ALM
     
     ## get ground truth

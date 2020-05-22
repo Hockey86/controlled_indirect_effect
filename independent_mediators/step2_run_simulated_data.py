@@ -8,7 +8,7 @@ from tqdm import tqdm
 import sys
 sys.path.insert(0, '../myfunctions')
 from prediction import fit_prediction_model
-from causal_inference import infer_mediation
+from causal_inference import infer_mediation, select_estimator
     
 
 if __name__=='__main__':
@@ -21,6 +21,8 @@ if __name__=='__main__':
     M = res['M']
     sids = np.arange(len(A))
     Mnames = ['M%d'%(i+1,) for i in range(M.shape[1])]
+    Mnames.append('avg')
+    n_mediator = len(Mnames)
     
     print('CDE0_1', res['CDE0_1'][0,0])
     print('CIE1_1', res['CIE1_1'][0,0])
@@ -37,13 +39,12 @@ if __name__=='__main__':
     ## set up numbers
 
     random_state = 2020
-    prediction_methods = ['linear']
-    causal_inference_methods = ['dr']
+    prediction_methods = ['xgb']#'linear', 'rf', 
+    ci_method = 'dr'
     Nbt = 1000
     np.random.seed(random_state)
     
     ## generate cv split
-
     cv_path = 'patients_cv_split_simulated.pickle'
     if os.path.exists(cv_path):
         with open(cv_path, 'rb') as ff:
@@ -74,6 +75,8 @@ if __name__=='__main__':
             Lbt = L
             Mbt = M
             sidsbt = sids
+            prediction_methods_outcome = prediction_methods
+            prediction_methods_exposure = prediction_methods
         else:
             # use bootstrapped data
             btids = np.random.choice(len(Y), len(Y), replace=True)
@@ -82,6 +85,8 @@ if __name__=='__main__':
             Lbt = L[btids]
             Mbt = M[btids]
             sidsbt = sids[btids]
+            prediction_methods_outcome = [best_pm_outcome]
+            prediction_methods_exposure = [best_pm_exposure]
         
         # outer loop cross validation
         for cvi in range(len(tr_sids)):
@@ -103,53 +108,63 @@ if __name__=='__main__':
             Lte = (Lte-Lmean)/Lstd
             
             #try:
-            for pi, pm in enumerate(prediction_methods):          
+            for pi, pm in enumerate(product(prediction_methods_outcome, prediction_methods_exposure)):
+                pm_outcome, pm_exposure = pm
+                
                 # fit A|L
-                model_a_l, model_a_l_perf = fit_prediction_model(pm+':bclf', Ltr, Atr,
-                                        save_path='models_simulated_data/model_a_l_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
+                import pdb;pdb.set_trace()
+                model_a_l, model_a_l_perf = fit_prediction_model(pm_exposure+':bclf', Ltr, Atr,
                                         random_state=random_state+pi+1000)
             
                 # fit Y|A,L,M
-                model_y_alm, model_y_alm_perf = fit_prediction_model(pm+':reg', np.c_[Atr, Ltr, Mtr], Ytr,
-                                    save_path='models_simulated_data/model_y_alm_cv%d_%s'%(cvi+1, pm) if bti==0 else None,
+                model_y_alm, model_y_alm_perf = fit_prediction_model(pm_outcome+':reg', np.c_[Atr, Ltr, Mtr], Ytr,
                                     random_state=random_state+pi*3000)
                                         
                 model_m_als = []
                 model_m_al_perfs = []
-                for mi, mediator_name in enumerate(Mnames):
+                for mi, mediator_name in enumerate(Mnames[:-1]):
                     # fit Mi|A,L
-                    model_m_al, model_m_al_perf = fit_prediction_model(pm+':bclf', np.c_[Atr, Ltr], Mtr[:, mi],
-                                        save_path='models_simulated_data/med_model_%s_cv%d_%s'%(mediator_name, cvi+1, pm) if bti==0 else None,
+                    model_m_al, model_m_al_perf = fit_prediction_model(pm_exposure+':bclf', np.c_[Atr, Ltr], Mtr[:, mi],
                                         random_state=random_state+pi*2000+mi)
                     model_m_als.append(model_m_al)
                     model_m_al_perfs.append(model_m_al_perf)
                     
                 # do causal inference
-                for ci, cim in enumerate(causal_inference_methods):
-                    cdes, scies, cies0, cies1 = infer_mediation(cim, model_a_l, model_m_als, model_y_alm, Yte, Mte, Ate, Lte, random_state=random_state+pi*4000+ci)
-                    
-                    # add average performance
-                    cdes.append(np.mean(cdes))
-                    scies.append(np.mean(scies))
-                    cies0.append(np.mean(cies0))
-                    cies1.append(np.mean(cies1))
-                    model_m_al_perfs.append(np.nan)
-                    
-                    res.append([bti, cvi, pm, cim, model_a_l_perf, model_y_alm_perf] + model_m_al_perfs + cdes + scies + cies0 + cies1)
-                    #print(res[-1])
+                cdes, scies, cies0, cies1 = infer_mediation(ci_method, model_a_l, model_m_als, model_y_alm,
+                                                            Yte, Mte, Ate, Lte, random_state=random_state+pi*4000)
+                
+                # add average performance
+                cdes.append(np.mean(cdes))
+                scies.append(np.mean(scies))
+                cies0.append(np.mean(cies0))
+                cies1.append(np.mean(cies1))
+                model_m_al_perfs.append(np.nan)
+                
+                res.append([bti, cvi, pm_outcome, pm_exposure, ci_method, model_a_l_perf, model_y_alm_perf] + model_m_al_perfs + cdes + scies + cies0 + cies1)
+                #print(res[-1])
             
             with open('results_simulated_data.pickle', 'wb') as ff:
                 pickle.dump(res, ff, protocol=2)
             
             #except Exception as ee:
             #    print(str(ee))
+            
+        if bti==0:
+            #@misc{cui2019selective,
+            #    title={Selective machine learning of doubly robust functionals},
+            #    author={Yifan Cui and Eric Tchetgen Tchetgen},
+            #    year={2019},
+            #    eprint={1911.02029},
+            #    archivePrefix={arXiv}}
+            best_pm_outcome, best_pm_exposure = select_estimator([[x[1], x[2], x[3], x[-n_mediator*4]+x[-n_mediator*3]] for x in res if res[0]==bti])
+            print('best prediction model', best_pm_outcome, best_pm_exposure)
+            res = [x for x in res if x[2]==best_pm_outcome and x[3]==best_pm_exposure]
+            
     #with open('results.pickle', 'rb') as ff:
     #    res = pickle.load(ff)
         
     res = np.array(res, dtype=object)
     Nbt = res[:,0].max()
-    Mnames.append('avg')
-    n_mediator = len(Mnames)
 
     perf_A_L_cols = ['perf(A|L)']
     perf_Y_ALM_cols = ['perf(Y|A,L,M)']

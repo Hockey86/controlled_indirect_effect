@@ -8,12 +8,15 @@ if __name__=='__main__':
     ## general setup
 
     N = 1000
-    D_L = 2
+    D_L = 10
     D_M = 3
     b = np.ones(N)
     
     random_state = 2020
     np.random.seed(random_state)
+
+    # M1-->M2-->M3
+    #  +--------^
 
     ## generate L
 
@@ -25,32 +28,32 @@ if __name__=='__main__':
     ## generate A from L
 
     coef_A_L = np.array([1,2,-9])*0.1
-    noise_A_L = np.random.randn(N)*0.1
+    noise_A_L = np.random.randn(N)*1
     A = np.dot(np.c_[L,b], coef_A_L) + noise_A_L
     A = sigmoid(A)
     # A is binary
-    A = (A>0.5).astype(int)
+    A = (A>0.5).astype(float)
     print('A', Counter(A))
 
     ## generate M1 from A and L
     coef_M1_AL = np.array([2,1,3,-15])*0.1
-    noise_M1_AL = np.random.randn(N)*0.1
+    noise_M1_AL = np.random.randn(N)*1
     M1 = sigmoid(np.dot(np.c_[A,L,b], coef_M1_AL) + noise_M1_AL)
-    M1 = (M1>0.5).astype(int)
+    M1 = (M1>0.5).astype(float)
 
     ## generate M2 from A, L and M1
 
     coef_M2_ALM1 = np.array([2,4,1,5,-15])*0.1
-    noise_M2_ALM1 = np.random.randn(N)*0.1
+    noise_M2_ALM1 = np.random.randn(N)*1
     M2 = sigmoid(np.dot(np.c_[A,L,M1,b], coef_M2_ALM1) + noise_M2_ALM1)
-    M2 = (M2>0.5).astype(int)
+    M2 = (M2>0.5).astype(float)
 
     ## generate M3 from A, L, M1 and M2
 
     coef_M3_ALM1M2 = np.array([3,5,1,8,12,-30])*0.1
-    noise_M3_ALM1M2 = np.random.randn(N)*0.1
+    noise_M3_ALM1M2 = np.random.randn(N)*1
     M3 = sigmoid(np.dot(np.c_[A,L,M1,M2,b], coef_M3_ALM1M2) + noise_M3_ALM1M2)
-    M3 = (M3>0.5).astype(int)    
+    M3 = (M3>0.5).astype(float)
     
     M = np.c_[M1, M2, M3]
     print('M1', Counter(M[:,0].flatten()))
@@ -59,8 +62,8 @@ if __name__=='__main__':
     
     ## generate Y from A, L, and M
 
-    coef_Y_ALM = np.array([1,2,3,4,5,6])
-    noise_Y_ALM = np.random.randn(N)*0.1
+    coef_Y_ALM = np.array([1,2,3,4,5,6]).astype(float)
+    noise_Y_ALM = np.random.randn(N)*1
     Y = np.dot(np.c_[A,L,M], coef_Y_ALM) + noise_Y_ALM
     
     ## get ground truth
@@ -88,14 +91,6 @@ if __name__=='__main__':
     CIE0 = []
     sCIE = []
     TEs = []
-    """
-    logit(M2_11).mean()*M1 + logit(M2_10).mean()*(1-M1)
-    logit(M2).mean()
-
-    from scipy.special import logit
-    logit(M3_111).mean()*M1*M2_11.mean()+logit(M3_110).mean()*M1*(1-M2_11.mean())+logit(M3_101).mean()*(1-M1)*M2_10.mean()+logit(M3_100).mean()*(1-M1)*(1-M2_10.mean())
-    logit(M3).mean()
-    """
     for mi in range(M.shape[1]):
         if mi==0:
             M1_1 = sigmoid(np.dot(np.c_[aa1, L, b], coef_M1_AL)).mean()
@@ -154,6 +149,7 @@ if __name__=='__main__':
         sCIE.append(CIE1[-1]*M1-CIE0[-1]*M0)
         TEs.append(CDE0[-1]+sCIE[-1])
     avg_TE = np.mean(TEs)
+    import pdb;pdb.set_trace()
 
     sio.savemat('simulated_data.mat',
                 {'A':A, 'L':L,

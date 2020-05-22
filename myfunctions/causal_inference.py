@@ -210,3 +210,7 @@ def infer_mediation_3mediator(method, model_a_l, model_m_als, model_y_alm, Y, M,
 
     return CDEs, sCIEs, CIE0s, CIE1s
 
+
+def select_estimator(info):
+    return best_pm_outcome, best_pm_exposure
+    
