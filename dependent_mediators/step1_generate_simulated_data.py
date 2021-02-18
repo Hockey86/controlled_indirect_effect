@@ -27,7 +27,7 @@ if __name__=='__main__':
 
     ## generate A from L
 
-    coef_A_L = np.array([1,2,-9])*0.1
+    coef_A_L = np.array([1,2,1,2,3,2,1,4,2,3,-9]).astype(float)
     noise_A_L = np.random.randn(N)*1
     A = np.dot(np.c_[L,b], coef_A_L) + noise_A_L
     A = sigmoid(A)
@@ -36,21 +36,21 @@ if __name__=='__main__':
     print('A', Counter(A))
 
     ## generate M1 from A and L
-    coef_M1_AL = np.array([2,1,3,-15])*0.1
+    coef_M1_AL = np.array([1,3,5,4,2,3,2,1,2,3,2,-25]).astype(float)
     noise_M1_AL = np.random.randn(N)*1
     M1 = sigmoid(np.dot(np.c_[A,L,b], coef_M1_AL) + noise_M1_AL)
     M1 = (M1>0.5).astype(float)
 
     ## generate M2 from A, L and M1
 
-    coef_M2_ALM1 = np.array([2,4,1,5,-15])*0.1
+    coef_M2_ALM1 = np.array([2,1,1,3,2,3,4,2,3,1,3,5,-10]).astype(float)
     noise_M2_ALM1 = np.random.randn(N)*1
     M2 = sigmoid(np.dot(np.c_[A,L,M1,b], coef_M2_ALM1) + noise_M2_ALM1)
     M2 = (M2>0.5).astype(float)
 
     ## generate M3 from A, L, M1 and M2
 
-    coef_M3_ALM1M2 = np.array([3,5,1,8,12,-30])*0.1
+    coef_M3_ALM1M2 = np.array([3,2,1,3,4,2,2,1,3,2,1,8,6,-20]).astype(float)
     noise_M3_ALM1M2 = np.random.randn(N)*1
     M3 = sigmoid(np.dot(np.c_[A,L,M1,M2,b], coef_M3_ALM1M2) + noise_M3_ALM1M2)
     M3 = (M3>0.5).astype(float)
@@ -62,7 +62,7 @@ if __name__=='__main__':
     
     ## generate Y from A, L, and M
 
-    coef_Y_ALM = np.array([1,2,3,4,5,6]).astype(float)
+    coef_Y_ALM = np.array([1,2,3,4,5,4,3,2,1,2,3,3,2,1]).astype(float)
     noise_Y_ALM = np.random.randn(N)*1
     Y = np.dot(np.c_[A,L,M], coef_Y_ALM) + noise_Y_ALM
     
@@ -149,8 +149,8 @@ if __name__=='__main__':
         sCIE.append(CIE1[-1]*M1-CIE0[-1]*M0)
         TEs.append(CDE0[-1]+sCIE[-1])
     avg_TE = np.mean(TEs)
-    import pdb;pdb.set_trace()
 
+    import pdb;pdb.set_trace()
     sio.savemat('simulated_data.mat',
                 {'A':A, 'L':L,
                  'Y':Y, 'M':M,

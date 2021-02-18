@@ -1,3 +1,4 @@
+from itertools import product
 import numpy as np
 
 
@@ -211,6 +212,38 @@ def infer_mediation_3mediator(method, model_a_l, model_m_als, model_y_alm, Y, M,
     return CDEs, sCIEs, CIE0s, CIE1s
 
 
-def select_estimator(info):
-    return best_pm_outcome, best_pm_exposure
+def select_estimator(cv, pm_outcome_exposure, effect):
+    pm_outcomes = sorted(set([x[0] for x in pm_outcome_exposure]))
+    pm_exposures = sorted(set([x[1] for x in pm_outcome_exposure]))
+    pairs = list(product(pm_outcomes, pm_exposures))
+    cvs = sorted(set(cv))
+    pertub = {}
+    for pair_fixed in pairs:
+        for pair in pairs:
+            per_cv = []
+            for cvi in cvs:
+                effect1 = effect[(cv==cvi) & np.array([x==pair for x in pm_outcome_exposure])][0]
+                effect2 = effect[(cv==cvi) & np.array([x==pair_fixed for x in pm_outcome_exposure])][0]
+                per_cv.append((effect1-effect2)**2)
+            pertub[(pair, pair_fixed)] = np.mean(per_cv)
+    # minmax
+    B1 = []
+    for pair in pairs:
+        pm_o, pm_e = pair
+        maxpertub1 = max([pertub[((pm_o, pm_e2), (pm_o, pm_e))] for pm_e2 in pm_exposures])
+        maxpertub2 = max([pertub[((pm_o2, pm_e), (pm_o, pm_e))] for pm_o2 in pm_outcomes])
+        maxpertub = max(maxpertub1, maxpertub2)
+        B1.append(maxpertub)
+    pm_o_minmax, pm_e_minmax = pairs[np.argmin(B1)]
+
+    # mixed minmax
+    B2 = []
+    for pair in pairs:
+        pm_o, pm_e = pair
+        maxpertub1 = max([pertub[((pm_o, pm_e1), (pm_o, pm_e2))] for pm_e1, pm_e2 in product(pm_exposures, pm_exposures)])
+        maxpertub2 = max([pertub[((pm_o1, pm_e), (pm_o2, pm_e))] for pm_o1, pm_o2 in product(pm_outcomes, pm_outcomes)])
+        maxpertub = maxpertub1 + maxpertub2
+        B2.append(maxpertub)
+    pm_o_mix_minmax, pm_e_mix_minmax = pairs[np.argmin(B2)]
+    return pm_o_minmax, pm_e_minmax, pm_o_mix_minmax, pm_e_mix_minmax
     

@@ -1,11 +1,14 @@
 import numpy as np
 from scipy.stats import spearmanr, kendalltau
+from scipy.spatial.distance import pdist, squareform
 from scipy.optimize import minimize
-from scipy.special import expit as sigmoid
+#from scipy.special import expit as sigmoid
+from scipy.special import logit
 from joblib import dump, load
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.linear_model import LogisticRegression, BayesianRidge
+from sklearn.linear_model import LogisticRegression, BayesianRidge, LinearRegression
 from sklearn.linear_model._logistic import _logistic_loss_and_grad
+from sklearn.svm import LinearSVC
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import GridSearchCV
@@ -13,20 +16,20 @@ from sklearn.pipeline import Pipeline
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import make_scorer
 from sklearn.utils import compute_class_weight
+from sklearn.base import BaseEstimator, ClassifierMixin
 from xgboost import XGBClassifier, XGBRegressor
 from imblearn.over_sampling import RandomOverSampler
 #from bart import BARTClassifier
-from learning_to_rank import LTRPairwise
+from learning_to_rank import LTRPairwise, MyXGBRanker
 
 
+"""
 class MyLogisticRegression(LogisticRegression):
-    """
-    Removes regularization on intercept
-    Allows bounds
-    Binary only
-    L2 only
-    L-BFGS-B or BFGS only
-    """
+    #Removes regularization on intercept
+    #Allows bounds
+    #Binary only
+    #L2 only
+    #L-BFGS-B or BFGS only
     def __init__(self, tol=1e-6, C=1.0, random_state=None, max_iter=1000, class_weight=None, bounds=None):
         super().__init__(penalty='l2', dual=False, tol=tol, C=C,
                  fit_intercept=True, intercept_scaling=1, class_weight=class_weight,
@@ -69,6 +72,103 @@ class MyLogisticRegression(LogisticRegression):
         self.coef_ = self.opt_res.x[:X.shape[1]].reshape(1,-1)
         self.intercept_ = self.opt_res.x[-1].reshape(1,)
         return self
+"""
+
+
+class MyLogisticRegression(LogisticRegression):
+    """
+    binary
+    converts {0,1} labels to [0--1] using nearest neighbors, then do linreg(X, logit(y))
+    """
+    def __init__(self, dist_func='euclidean', n_neighbors=100, weight='tricubic', max_iter=1000):
+        self.dist_func = dist_func
+        self.n_neighbors = n_neighbors
+        self.weight = weight
+        self.max_iter = max_iter
+    
+    def get_y_cont(self, X, y):
+        # encode labels
+        self.le = LabelEncoder().fit(y)
+        self.classes_ = self.le.classes_
+        y = self.le.transform(y)
+        class_set = set(self.classes_)
+        
+        # get pairwise distance and its max
+        dist = pdist(X, metric=self.dist_func)
+        self.max_dist = np.percentile(dist, 95)
+        
+        # generate sorted ids
+        dist = squareform(dist)
+        dist[range(len(X)),range(len(X))] = np.inf
+        sorted_ids = np.argsort(dist, axis=1)
+        
+        # generate close ids and weighted y
+        y2 = []
+        for i in range(len(dist)):
+            sorted_id = sorted_ids[i]
+            close_ys = y[sorted_id[:self.n_neighbors]]
+            if set(close_ys)==class_set:
+                # if nearest neighbor contains both classes
+                close_dist = dist[i][sorted_id[:self.n_neighbors]]
+            else:
+                # if nearest neighbor not contain both classes
+                # search further until the next missing class occurs
+                missing_class = list(class_set - set(close_ys))[0]
+                n_neighbors = np.where(y[sorted_id]==missing_class)[0][0]
+                close_ys = y[sorted_id[:n_neighbors+1]]
+                close_dist = dist[i][sorted_id[:n_neighbors+1]]
+            
+            if self.weight=='tricubic':
+                d = np.minimum(close_dist/self.max_dist, 1)
+                close_weight = (1-d**3)**3
+            else:
+                raise NotImplementedError(self.weight)
+            #if self.weight=='softmax':
+            close_weight /= close_weight.mean()
+            y2.append( (close_ys*close_weight).mean() )
+            
+        return np.array(y2)
+        
+    def fit(self, X, y, y2=None):
+        
+        if y2 is None:
+            y2 = self.get_y_cont(self, X, y)
+        else:
+            # encode labels
+            self.le = LabelEncoder().fit(y)
+            self.classes_ = self.le.classes_
+            
+        self._model = BayesianRidge(n_iter=self.max_iter).fit(X, logit(y2))
+        #self._model = LinearRegression().fit(X, logit(y2))
+        self.coef_ = self._model.coef_.reshape(1,-1)
+        self.intercept_ = self._model.intercept_.reshape(1)
+        
+        return self
+
+
+class MyDummyClassifier(BaseEstimator, ClassifierMixin):
+    # always return P(y=1)
+    def fit(self, X, y):
+        self.label_encoder = LabelEncoder().fit(y)
+        self.classes_ = self.label_encoder.classes_
+
+        y = self.label_encoder.transform(y)
+        self.yp = np.mean(y, axis=0)
+        return self
+
+    def predict_proba(self, X):
+        if len(self.classes_)==2:
+            yp = np.array([self.yp]*len(X))
+            return np.array([1-yp, yp]).T
+        else:
+            return np.array([[self.yp]*len(X)])
+
+    def predict(self, X):
+        yp = self.predict_proba(X)
+        yp = np.argmax(yp, axis=1)
+        yp = self.label_encoder.inverse_transform(yp)
+        return yp
+
 
 def y_2d_to_1d(y):
     if y.ndim==2:
@@ -89,28 +189,36 @@ def get_model(model_name, model_type, cv=5, random_state=None):
     if model_type.endswith('clf'):
         scorer = 'f1_weighted'
             
-        if model_name=='linear':
+        if model_name=='dummy':
+            model = MyDummyClassifier()
+
+        elif model_name=='linear':
             #Pipeline((
             #    ('standardization', StandardScaler()),
-            model = MyLogisticRegression(random_state=random_state, max_iter=1000, class_weight='balanced')
-            model = GridSearchCV(model, {'C':np.logspace(1,4,10)}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+            #model = MyLogisticRegression(random_state=random_state, max_iter=1000, class_weight='balanced')
+            #model = GridSearchCV(model, {'C':np.logspace(1,4,10)}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+            model = MyLogisticRegression(n_neighbors=100)
+            #model = GridSearchCV(model, {'n_neighbors':[50,100]}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
             
         elif model_name=='xgb':
             model = XGBClassifier(verbosity=0, n_jobs=1, random_state=random_state, class_weight='balanced')
             model = GridSearchCV(model,
                         {'learning_rate':[0.1,0.2,0.3],
-                        'max_depth':[3,5,6,10],
-                        'reg_lambdas':[0.01,0.1,1],
+                        'max_depth':[3,5],
+                        'reg_lambdas':[0.01,0.1],
                         'subsample':[0.5,1],},
                         scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
             
         elif model_name=='rf':
             model = RandomForestClassifier(random_state=random_state, class_weight='balanced')
             model = GridSearchCV(model,
-                        {'n_estimators':[10,30],
+                        {'n_estimators':[5, 10],
                         'max_depth':[3,5],
                         'min_samples_leaf':[10,20]},
                         scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+        elif model_name=='svm':
+            model = LinearSVC(penalty='l2', dual=False, class_weight='balanced', random_state=random_state, max_iter=1000)
+            model = GridSearchCV(model, {'C':np.logspace(-4,-1,10)}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
     
     
     elif model_type=='reg':
@@ -126,30 +234,44 @@ def get_model(model_name, model_type, cv=5, random_state=None):
             model = XGBRegressor(verbosity=0, n_jobs=1, random_state=random_state)
             model = GridSearchCV(model,
                         {'learning_rate':[0.1,0.2,0.3],
-                        'max_depth':[3,5,6,10],
-                        'reg_lambdas':[0.01,0.1,1],
+                        'max_depth':[3,5],
+                        'reg_lambdas':[0.01,0.1],
                         'subsample':[0.5,1],},
                         scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
             
         elif model_name=='rf':
             model = RandomForestRegressor(random_state=random_state)
             model = GridSearchCV(model,
-                        {'n_estimators':[10,50],
+                        {'n_estimators':[5, 10],
                         'max_depth':[3,5],
-                        'min_samples_leaf':[10,20,50]},
+                        'min_samples_leaf':[10,20]},
                         scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
     
     elif model_type=='ltr':
-        scorer = make_scorer(lambda y,yp:kendalltau(y,yp)[0])
+        #scorer = make_scorer(lambda y,yp:kendalltau(y,yp)[0])
+        scorer = 'f1_weighted'
             
         if model_name=='linear':
-            model = LTRPairwise(MyLogisticRegression(random_state=random_state, max_iter=1000, class_weight='balanced'))
-            model = GridSearchCV(model, {'estimator__C':np.logspace(1,4,10)}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+            #model = LTRPairwise(MyLogisticRegression(random_state=random_state, max_iter=1000, class_weight='balanced'))
+            #model = GridSearchCV(model, {'estimator__C':np.logspace(1,4,10)}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+            model = LTRPairwise(MyLogisticRegression(n_neighbors=100))
+            #model = GridSearchCV(model, {'estimator__n_neighbors':[50,100]}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+        elif model_name=='svm':
+            model = LTRPairwise(LinearSVC(penalty='l2', dual=False, class_weight='balanced', random_state=random_state, max_iter=1000))
+            model = GridSearchCV(model, {'estimator__C':np.logspace(-4,-1,10)}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+        elif model_name=='xgb':
+            model = MyXGBRanker(verbosity=0, n_jobs=1, random_state=random_state)
+            model = GridSearchCV(model,
+                        {'learning_rate':[0.1,0.2,0.3],
+                        'max_depth':[3,5],
+                        'reg_lambdas':[0.01,0.1],
+                        'subsample':[0.5,1],},
+                        scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
         
     return model
     
     
-def fit_prediction_model(model_name, X, y, save_path=None, random_state=None):
+def fit_prediction_model(model_name, X, y, y2=None, save_path=None, random_state=None):
     
     # oversample the minor class
     #resampler = RandomOverSampler(sampling_strategy='auto', random_state=random_state)
@@ -160,12 +282,18 @@ def fit_prediction_model(model_name, X, y, save_path=None, random_state=None):
     model = get_model(model_name, model_type, random_state=random_state)
     
     # fit
-    model.fit(X, y)
-    best_perf = model.best_score_
-    model = model.best_estimator_
+    if type(model)==MyLogisticRegression:
+        model.fit(X, y, y2=y2)
+    else:
+        model.fit(X, y)
+    if hasattr(model, 'best_score_'):
+        best_perf = model.best_score_
+        model = model.best_estimator_
+    else:
+        best_perf = model.score(X, y)
     
     # calibrate
-    if model_type.endswith('clf'):
+    if model_type.endswith('clf') and model_name!='dummy':
         model = CalibratedClassifierCV(model, method='sigmoid', cv='prefit')
         model.fit(X, y)
     

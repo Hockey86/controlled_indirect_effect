@@ -1,13 +1,14 @@
 from collections import Counter
 import numpy as np
 import scipy.io as sio
+from scipy.stats import bernoulli
 from scipy.special import expit as sigmoid
     
 
 if __name__=='__main__':
     ## general setup
 
-    N = 1000
+    N = 10000
     D_L = 10
     D_M = 2
     b = np.ones(N)
@@ -24,12 +25,13 @@ if __name__=='__main__':
 
     ## generate A from L
 
-    coef_A_L = np.array([1,2,1,2,3,2,1,4,2,3,-9]).astype(float)
+    coef_A_L = np.array([1,2,1,2,3,2,1,4,2,3,-9]).astype(float)/10
     noise_A_L = np.random.randn(N)*1
-    A = np.dot(np.c_[L,b], coef_A_L) + noise_A_L
+    A = np.dot(np.c_[L,b], coef_A_L)# + noise_A_L
     A = sigmoid(A)
     # A is binary
-    A = (A>0.5).astype(float)
+    #A = (A>0.5).astype(float)
+    A = bernoulli.rvs(A)
     print('A', Counter(A))
 
     ## generate M from A and L
@@ -45,17 +47,18 @@ if __name__=='__main__':
                           [2,2],
                           [3,1],
                           [2,3],
-                          [-25,-25],]).astype(float)
+                          [-25,-25],]).astype(float)/10
     noise_M_AL = np.random.randn(N, D_M)*1
-    M = np.dot(np.c_[A,L,b], coef_M_AL) + noise_M_AL
+    M = np.dot(np.c_[A,L,b], coef_M_AL)# + noise_M_AL
     M = sigmoid(M)
     # M is binary
-    M = (M>0.5).astype(float)
+    #M = (M>0.5).astype(float)
+    M = bernoulli.rvs(M)
     print('M', Counter(M.flatten()))
     
     ## generate Y from A, L, and M
 
-    coef_Y_ALM = np.array([1,3,1,2,1,2,3,2,3,2,3,4,5]).astype(float)
+    coef_Y_ALM = np.array([1,3,1,2,1,2,3,2,3,2,3,4,5]).astype(float)/10
     noise_Y_ALM = np.random.randn(N)*1
     Y = np.dot(np.c_[A,L,M], coef_Y_ALM) + noise_Y_ALM
     
@@ -94,8 +97,31 @@ if __name__=='__main__':
     Y0=np.dot(np.c_[np.zeros(N),L,m0],coef_Y_ALM).mean()
     Y1=np.dot(np.c_[np.zeros(N)+1,L,m1],coef_Y_ALM).mean()
     assert np.abs(Y1-Y0-TE)<1e-4
-    import pdb;pdb.set_trace()
     
+    """
+    import sys
+    sys.path.insert(0, '../myfunctions')
+    import pymalts
+    import pandas as pd
+    df=pd.DataFrame(data=np.c_[A,L,M[:,0]],columns=['A']+[f'L{x}' for x in range(1,11)]+['M1'])
+    m = pymalts.malts( outcome='M1', treatment='A', data=df, discrete=[], k=10 )
+    res = m.fit()
+    mg = m.get_matched_groups(df_estimation = df, k=20 )
+    cate = m.CATE( mg, model='mean' )
+
+    from scipy.spatial.distance import pdist,squareform
+    aa=squareform(pdist(L))
+    aa[range(N),range(N)]=np.inf
+    kk=np.argsort(aa,axis=1)
+    m_a0=[M[kk[x][A[kk[x]]==1][:2]].mean(axis=0)-M[x] for x in range(N) if A[x]==0]
+    m_a1=[M[x]-M[kk[x][A[kk[x]]==0][:2]].mean(axis=0) for x in range(N) if A[x]==1]
+    y_a0=[Y[kk[x][A[kk[x]]==1][:2]].mean()-Y[x] for x in range(N) if A[x]==0]
+    y_a1=[Y[x]-Y[kk[x][A[kk[x]]==0][:2]].mean() for x in range(N) if A[x]==1]
+    from sklearn.linear_model import LinearRegression
+    linreg = LinearRegression().fit(np.c_[A,L],Y)
+    import pdb;pdb.set_trace()
+    """
+
     sio.savemat('simulated_data.mat',
                 {'A':A, 'L':L, 'Y':Y, 'M':M,
                 
@@ -108,6 +134,7 @@ if __name__=='__main__':
                  'CIE0_1':CIE0_1,
                  'sCIE1':sCIE1,
                  'TE1':TE1,
+                 
                  'CDE0_2':CDE0_2,
                  'CIE1_2':CIE1_2,
                  'CIE0_2':CIE0_2,
