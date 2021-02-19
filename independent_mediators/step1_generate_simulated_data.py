@@ -8,7 +8,7 @@ from scipy.special import expit as sigmoid
 if __name__=='__main__':
     ## general setup
 
-    N = 10000
+    N = 1000
     D_L = 10
     D_M = 2
     b = np.ones(N)
@@ -58,7 +58,7 @@ if __name__=='__main__':
     
     ## generate Y from A, L, and M
 
-    coef_Y_ALM = np.array([1,3,1,2,1,2,3,2,3,2,3,4,5]).astype(float)/10
+    coef_Y_ALM = np.array([1,3,1,2,1,2,3,2,3,2,3,4,5]).astype(float)
     noise_Y_ALM = np.random.randn(N)*1
     Y = np.dot(np.c_[A,L,M], coef_Y_ALM) + noise_Y_ALM
     

@@ -1,10 +1,11 @@
 import numpy as np
 from scipy.stats import spearmanr, kendalltau
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import pdist, squareform, cdist
 from scipy.optimize import minimize
 #from scipy.special import expit as sigmoid
 from scipy.special import logit
-from joblib import dump, load
+from joblib import dump, load, Parallel, delayed
+from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.linear_model import LogisticRegression, BayesianRidge, LinearRegression
 from sklearn.linear_model._logistic import _logistic_loss_and_grad
@@ -16,7 +17,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import make_scorer
 from sklearn.utils import compute_class_weight
-from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, clone
 from xgboost import XGBClassifier, XGBRegressor
 from imblearn.over_sampling import RandomOverSampler
 #from bart import BARTClassifier
@@ -85,7 +86,9 @@ class MyLogisticRegression(LogisticRegression):
         self.n_neighbors = n_neighbors
         self.weight = weight
         self.max_iter = max_iter
-    
+        self.solver = 'lbfgs'
+        self.multi_class = 'auto'
+
     def get_y_cont(self, X, y):
         # encode labels
         self.le = LabelEncoder().fit(y)
@@ -101,6 +104,11 @@ class MyLogisticRegression(LogisticRegression):
         dist = squareform(dist)
         dist[range(len(X)),range(len(X))] = np.inf
         sorted_ids = np.argsort(dist, axis=1)
+        """ # or decide based on thresholding weight
+        sorted_dists = np.sort(dist,axis=1)
+        ww = (1-np.minimum(sorted_dists/self.max_dist,1)**3)**3
+        n_neighbors = np.where(ww.mean(axis=0)>=0.9)[0][-1]
+        """
         
         # generate close ids and weighted y
         y2 = []
@@ -129,7 +137,7 @@ class MyLogisticRegression(LogisticRegression):
             
         return np.array(y2)
         
-    def fit(self, X, y, y2=None):
+    def fit(self, X, y, y2=None, sample_weight=None):
         
         if y2 is None:
             y2 = self.get_y_cont(self, X, y)
@@ -138,8 +146,8 @@ class MyLogisticRegression(LogisticRegression):
             self.le = LabelEncoder().fit(y)
             self.classes_ = self.le.classes_
             
-        self._model = BayesianRidge(n_iter=self.max_iter).fit(X, logit(y2))
-        #self._model = LinearRegression().fit(X, logit(y2))
+        self._model = BayesianRidge(n_iter=self.max_iter).fit(X, logit(y2), sample_weight=sample_weight)
+        #self._model = LinearRegression().fit(X, logit(y2), sample_weight=sample_weight)
         self.coef_ = self._model.coef_.reshape(1,-1)
         self.intercept_ = self._model.intercept_.reshape(1)
         
@@ -170,6 +178,98 @@ class MyDummyClassifier(BaseEstimator, ClassifierMixin):
         return yp
 
 
+class LocalModelBase(BaseEstimator):
+    def __init__(self, model, frac=0.2, dist_func='euclidean', weight='tricubic', n_jobs=1, verbose=False):
+        self.model = model
+        self.frac = frac
+        self.dist_func = dist_func
+        self.weight = weight
+        self.n_jobs = n_jobs
+        self.verbose = verbose
+    
+    def decide_neighbor(self, X):
+        dists = cdist(X, self.X, metric=self.dist_func)#/np.sqrt(X.shape[1])
+        max_dist = np.percentile(dists.flatten(), 95)
+        n_neighbors = int(round(self.frac*len(X)))
+
+        neighbor_ids = np.argsort(dists, axis=1)[:,:n_neighbors]
+        neighbor_dists = np.sort(dists, axis=1)[:,:n_neighbors]
+        if self.weight=='tricubic':
+            d = np.minimum(neighbor_dists/max_dist, 1)
+            weights = (1-d**3)**3
+        else:
+            raise NotImplementedError(self.weight)
+
+        return neighbor_ids, weights
+
+
+class LOWESSClassifier(LocalModelBase, ClassifierMixin):
+    def __init__(self, model, frac=0.2, dist_func='euclidean', weight='tricubic', n_jobs=1, verbose=False):
+        super().__init__(model, frac=frac, dist_func=dist_func, weight=weight, n_jobs=n_jobs, verbose=verbose)
+
+    def fit(self, X, y, y2=None):
+        self.X = np.array(X)
+
+        self.le = LabelEncoder()
+        self.le.fit(y)
+        self.classes_ = self.le.classes_
+        self.y = self.le.transform(y)
+        if y2 is None:
+            self.y2 = None
+        else:
+            self.y2 = np.array(y2)
+    
+        return self
+
+    def predict_proba(self, X):
+        def _inner_predict(model_, X, Xref, yref, swref, y2ref):
+            model = clone(model_)
+            if y2ref is None:
+                local_model = model.fit(Xref, yref, sample_weight=swref)
+            else:
+                local_model = model.fit(Xref, yref, y2=y2ref, sample_weight=swref)
+            return local_model.predict_proba(X.reshape(1,-1))[0]
+
+        neighbors, weights = self.decide_neighbor(X)
+
+        with Parallel(n_jobs=self.n_jobs) as parallel:
+            yp = parallel(delayed(_inner_predict)(
+                self.model, X[i], self.X[neighbors[i]], self.y[neighbors[i]], weights[i], None if self.y2 is None else self.y2[neighbors[i]])
+                    for i in tqdm(range(len(X)), disable=not self.verbose))
+
+        return np.array(yp)
+        
+    def predict(self, X):
+        yp = self.predict_proba(X)
+        yp = self.le.inverse_transform(np.argmax(yp, axis=1))
+        return yp
+
+
+class LOWESSRegressor(LocalModelBase, RegressorMixin):
+    def __init__(self, model, frac=0.2, dist_func='euclidean', weight='tricubic', n_jobs=1, verbose=False):
+        super().__init__(model, frac=frac, dist_func=dist_func, weight=weight, n_jobs=n_jobs, verbose=verbose)
+
+    def fit(self, X, y, y2=None):
+        self.X = np.array(X)
+        self.y = np.array(y)
+        return self
+
+    def predict(self, X):
+        def _inner_predict(model_, X, Xref, yref, swref):
+            model = clone(model_)
+            local_model = model.fit(Xref, yref, sample_weight=swref)
+            return local_model.predict(X.reshape(1,-1))[0]
+
+        neighbors, weights = self.decide_neighbor(X)
+
+        with Parallel(n_jobs=self.n_jobs) as parallel:
+            yp = parallel(delayed(_inner_predict)(
+                self.model, X[i], self.X[neighbors[i]], self.y[neighbors[i]], weights[i])
+                    for i in tqdm(range(len(X)), disable=not self.verbose))
+
+        return np.array(yp)
+        
+
 def y_2d_to_1d(y):
     if y.ndim==2:
         if y.shape[1]==2:
@@ -184,7 +284,7 @@ def myspearmanr(y, yp):
 
 
 def get_model(model_name, model_type, cv=5, random_state=None):
-    n_jobs = 1
+    n_jobs = 12
     
     if model_type.endswith('clf'):
         scorer = 'f1_weighted'
@@ -199,6 +299,10 @@ def get_model(model_name, model_type, cv=5, random_state=None):
             #model = GridSearchCV(model, {'C':np.logspace(1,4,10)}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
             model = MyLogisticRegression(n_neighbors=100)
             #model = GridSearchCV(model, {'n_neighbors':[50,100]}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+
+        elif model_name=='lowess-linear':
+            model = LOWESSClassifier(MyLogisticRegression(), frac=0.2, n_jobs=n_jobs)
+            #model = GridSearchCV(model, {'frac':[0.1,0.2,0.5]}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
             
         elif model_name=='xgb':
             model = XGBClassifier(verbosity=0, n_jobs=1, random_state=random_state, class_weight='balanced')
@@ -226,9 +330,10 @@ def get_model(model_name, model_type, cv=5, random_state=None):
             
         if model_name=='linear':
             model = BayesianRidge(n_iter=1000)
-            model = GridSearchCV(model,
-                        {'alpha_1':[1e-6]},
-                        scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
+
+        elif model_name=='lowess-linear':
+            model = LOWESSRegressor(BayesianRidge(n_iter=1000), frac=0.2, n_jobs=n_jobs)
+            #model = GridSearchCV(model, {'frac':[0.1,0.2,0.5]}, scoring=scorer, n_jobs=n_jobs, refit=True, cv=cv)
             
         elif model_name=='xgb':
             model = XGBRegressor(verbosity=0, n_jobs=1, random_state=random_state)
@@ -282,10 +387,10 @@ def fit_prediction_model(model_name, X, y, y2=None, save_path=None, random_state
     model = get_model(model_name, model_type, random_state=random_state)
     
     # fit
-    if type(model)==MyLogisticRegression:
-        model.fit(X, y, y2=y2)
-    else:
+    if y2 is None:
         model.fit(X, y)
+    else:
+        model.fit(X, y, y2=y2)
     if hasattr(model, 'best_score_'):
         best_perf = model.best_score_
         model = model.best_estimator_

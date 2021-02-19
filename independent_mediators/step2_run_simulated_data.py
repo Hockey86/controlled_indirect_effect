@@ -40,19 +40,20 @@ if __name__=='__main__':
     ## set up numbers
 
     random_state = 2020
-    model_outcome = 'linear'
-    model_exposure = 'linear'
+    model_outcome = str(sys.argv[1])
+    assert model_outcome in ['linear', 'lowess-linear']
+    model_exposure = model_outcome
     ci_method = 'dr'
-    Nbt = 1000
+    Nbt = 100
     
     ## generate cv split
     
+    cvf = 5
     cv_path = 'patients_cv_split_simulated.pickle'
     if os.path.exists(cv_path):
         with open(cv_path, 'rb') as ff:
             tr_sids, te_sids = pickle.load(ff)
     else:
-        cvf = 5
         sids2 = np.array(sids)
         np.random.seed(random_state)
         np.random.shuffle(sids2)
@@ -68,7 +69,8 @@ if __name__=='__main__':
     np.random.seed(random_state)
     
     
-    if model_exposure == 'linear':
+    transform_y = 'linear' in model_exposure
+    if transform_y:
         Lmean = L.mean(axis=0)
         Lstd = L.std(axis=0)
         L2 = (L-Lmean)/Lstd
@@ -91,7 +93,7 @@ if __name__=='__main__':
             Ybt = Y
             Lbt = L
             Mbt = M
-            if model_exposure == 'linear':
+            if transform_y:
                 Abt2 = A2
                 Mbt2 = M2
             sidsbt = sids
@@ -103,7 +105,7 @@ if __name__=='__main__':
             Lbt = L[btids]
             Mbt = M[btids]
             sidsbt = sids[btids]
-            if model_exposure == 'linear':
+            if transform_y:
                 Abt2 = A2[btids]
                 Mbt2 = M2[btids]
         
@@ -117,7 +119,7 @@ if __name__=='__main__':
             Ltr = Lbt[trid]
             Atr = Abt[trid]
             Mtr = Mbt[trid]
-            if model_exposure == 'linear':
+            if transform_y:
                 Atr2 = Abt2[trid]
                 Mtr2 = Mbt2[trid]
                 
@@ -132,15 +134,18 @@ if __name__=='__main__':
             Lte = (Lte-Lmean)/Lstd
                 
             # fit A|L
+            #print('A|L')
             model_a_l, model_a_l_perf = fit_prediction_model(
                     model_exposure+':bclf', Ltr,
                     Atr, y2=Atr2, random_state=random_state+cvi+1000)
         
             # fit Y|A,L,M
+            #print('Y|ALM')
             model_y_alm, model_y_alm_perf = fit_prediction_model(
                     model_outcome+':reg', np.c_[Atr, Ltr, Mtr], Ytr,
                     random_state=random_state+cvi*3000)
                                     
+            #print('M|AL')
             model_m_als = []
             model_m_al_perfs = []
             for mi, mediator_name in enumerate(Mnames[:-1]):
@@ -153,6 +158,7 @@ if __name__=='__main__':
                 model_m_al_perfs.append(model_m_al_perf)
                 
             # do causal inference
+            #print('infer')
             cdes, scies, cies0, cies1 = infer_mediation(ci_method, model_a_l, model_m_als, model_y_alm,
                                                         Yte, Mte, Ate, Lte, random_state=random_state+cvi*4000)
             
